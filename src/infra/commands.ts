@@ -92,7 +92,10 @@ export class Commands {
     return validItems(item, pages.flat(), tally)
   }
   private path(path: string): string {
-    const outside = /^\/|^[a-z]+:|(^|\/)\.\.?(\/|\?|$)/i.test(path)
+    // 原文与一次 URL 解码都受限：`..%2F` 这类编码在服务端解码后同样是向上遍历（审计发现 #3）。
+    let decoded = path
+    try { decoded = decodeURIComponent(path) } catch { /* 非法编码原样受检 */ }
+    const outside = [path, decoded].some(p => /^\/|^[a-z]+:|(^|\/)\.\.?(\/|\?|#|$)/i.test(p))
     if (outside) throw new Error('GitHub calls are restricted to the configured repository')
     return path ? `repos/${this.repository}/${path}` : `repos/${this.repository}`
   }
