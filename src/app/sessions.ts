@@ -66,8 +66,8 @@ const NO_WAIT = 'Reports, follow_up notices, new candidates and a background job
 /** What a main Session under `standard` is told when its command would wait the shell's default. */
 const DEFAULT_WAIT = 'This shell waits up to 60 seconds by default: pass timeoutMs of at most 30000, or run_in_background, '
   + 'as a waiting step holds back new candidates.'
-/** `sleep` at a command position: the start, after ; & | ( { ! ` or a newline, or after a keyword or a command that runs it. */
-const SLEEP = /(?:^|[;&|({!`\n]|\b(?:do|then|else|elif|if|while|until|time|exec|nohup|command|env)\s)\s*(?:\S*\/)?sleep\b/
+/** `sleep` at a command position: the start, after ; & | ( { ! ` or a newline, or after a keyword or a command that runs it——含 timeout/watch/xargs 等包装命令（审计发现 #5）. */
+const SLEEP = /(?:^|[;&|({!`\n]|\b(?:do|then|else|elif|if|while|until|time|exec|nohup|command|env|timeout|watch|xargs|nice|ionice|stdbuf|setsid|flock|strace)\s)\s*(?:\S*\/)?sleep\b/
 /**
  * The main Session's guard: it refuses a bash command that runs sleep or asks to hold the step longer than 30 seconds, and a
  * job wait longer than 5 seconds. Under `standard`, as a main Session created before the router preset runs, the shell holds
@@ -260,7 +260,8 @@ export class Sessions {
     const register = this.registerTool(agent, binding)
     for (const tool of host.tools(agent, ticket)) register(tool.name, tool.description, tool.schema, tool.execute)
     if (master) {
-      binding.disposers.push(agent.ctx.tools.restrict({ allow: ['skill', 'bash', 'read', 'read_image', 'job_output', 'job_list', 'job_kill'] }),
+      // Router 会话的工具白名单按平台限制 bash/pwsh（社区踩坑 K4：写死 'bash' 时 Windows 只有 pwsh，orchestrator 初始化失败）。
+      binding.disposers.push(agent.ctx.tools.restrict({ allow: ['skill', process.platform === 'win32' ? 'pwsh' : 'bash', 'read', 'read_image', 'job_output', 'job_list', 'job_kill'] }),
         agent.ctx.tools.guard(execution => noWait(execution, () => this.routed(agent))))
     } else {
       // An Executor Session keeps the profile's work tools it has, which DSH requires to be known; its own tools are not masked.

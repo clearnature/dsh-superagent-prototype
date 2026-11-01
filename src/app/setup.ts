@@ -74,6 +74,9 @@ export class Setup {
     return workerProbe(context.subprocess, machine.stateDir, machine.stateDir, lifetime)
   }
   private async resolve(settings: Settings): Promise<Deployment> {
+    // 每轮 resolve 先清残留：上一轮失败态不清会让 check() 在故障恢复后仍误判、面板显示过期错误（审计发现 #4）。
+    this.problem = undefined
+    this.feishuProblem = undefined
     const { context, machine, lifetime } = this.host
     const probe = this.probe()
     const deployment = await resolveDeployment(machine, settings.sources.github?.config, probe)

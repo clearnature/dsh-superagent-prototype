@@ -1,6 +1,7 @@
 /** Plugin configuration and startup verification for repository access and agent CLI identities. */
 import { LIMITS } from './limits.ts'
 import { accessSync, constants, statSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { delimiter, isAbsolute, join } from 'node:path'
 import type { Volatile } from '@deepseek-ai/cordis'
 import s from '@deepseek-ai/schemastery'
@@ -10,10 +11,17 @@ import { runAsWorker, sameDirectory, withoutDirectory, workerBin } from './infra
 import { SetupError } from './setup.ts'
 
 const reason = (error: unknown): string => error instanceof Error ? error.message : String(error)
-const absolute = (description: string) => s.string().pattern(/^\//).description(`${description} Absolute path.`)
+const absolute = (description: string) => s.string().pattern(/^(\/|[A-Za-z]:[\/])/).description(`${description} Absolute path (POSIX or a Windows drive path).`)
+/**
+ * 默认 state 目录挂在 DSH home 下：bundle 从插件管理器安装后无需任何机器配置即可挂载（社区踩坑 K3：
+ * 缺 stateDir 时插件静默拒载，面板只说「没有响应」）。`DSH_HOME` 可迁移默认位置，profile 显式设置 `stateDir` 时仍以其为准。
+ */
+const defaultStateDir = (): string => join(process.env.DSH_HOME?.trim() || join(homedir(), '.dsh'), 'state', 'superagent').replaceAll('\\', '/')
 /** Plugin configuration of the dsh-superagent entry. Volatile fields apply without a restart because dsh-superagent reads them on each use; changing `stateDir` remounts the plugin. */
 export const Config = s.object({
-  stateDir: absolute('Directory for the database, locks, worker shims, the agent\'s git configuration and, by default, the ticket directories.').required(),
+  stateDir: absolute('Directory for the database, locks, worker shims, the agent\'s git configuration and, by default, the ticket directories.')
+    // 默认值在 schema 构建时求值一次：DSH_HOME 需在进程启动前设好（schemastery 的 default 不支持惰性函数，审查发现 #3 的惰性化暂缓）。
+    .default(defaultStateDir()),
   promptMaxChars: s.number().min(LIMITS.promptMaxChars.min).max(LIMITS.promptMaxChars.max).step(1).default(100000)
     .description('Largest saved prompt configuration, in characters.').volatile(),
   admissionContextMaxPages: s.number().min(LIMITS.admissionContextMaxPages.min).max(LIMITS.admissionContextMaxPages.max).step(1).default(10)
@@ -72,6 +80,11 @@ export type Probe = (argv: string[]) => Promise<string>
 /** Run startup checks through DSH's worker subprocess service with worker shims removed from PATH so a `gh` wrapper script reaches the real binary. */
 export function workerProbe(subprocess: SubprocessRuntime, stateDir: string, cwd: string, signal: AbortSignal): Probe {
   const path = withoutDirectory(process.env.PATH ?? '', workerBin(stateDir))
+  const run = (argv: string[]): ReturnType<typeof runAsWorker> =>
+    runAsWorker(subprocess, argv, cwd, AbortSignal.any([signal, AbortSignal.timeout(60_000)]), { PATH: path })
+  // Windows 没有 `env` 这个可执行文件（社区踩坑 K1：spawn env ENOENT）；直接把 PATH 交给子进程环境。
+  // POSIX 保持 `env PATH=...` 前缀，行为与修复前完全一致。
+  if (process.platform === 'win32') return run
   return argv => runAsWorker(subprocess, ['env', `PATH=${path}`, ...argv], cwd, AbortSignal.any([signal, AbortSignal.timeout(60_000)]))
 }
 
@@ -117,7 +130,9 @@ export async function resolveFeishuBot(machine: Machine, feishu: unknown, probe:
   const fail = (error: unknown): never => { throw error instanceof SetupError ? error : new SetupError('feishuCliFailed', { output: reason(error) }) }
   let cli = ''
   try { cli = executable(name, path, workerBin(machine.stateDir)) } catch (error) { fail(error) }
-  const run = (...args: string[]): Promise<string> => probe(['env', 'LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1', 'LARKSUITE_CLI_NO_SKILLS_NOTIFIER=1', cli, ...args]).catch(fail)
+  // Windows 没有 `env`（K1），探针 argv 不能硬编码 `env` 前缀：按平台决定是否用 env 传变量（审计发现 #1）。
+  const env = process.platform === 'win32' ? [] : ['env', 'LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1', 'LARKSUITE_CLI_NO_SKILLS_NOTIFIER=1']
+  const run = (...args: string[]): Promise<string> => probe([...env, cli, ...args]).catch(fail)
   const text = await run('auth', 'status')
   const status = parsed(AuthStatus, text.slice(text.indexOf('{')))
   if (!status) return fail(new SetupError('feishuNoApp'))

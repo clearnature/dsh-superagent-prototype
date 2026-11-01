@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Config, executable, machineOf, resolveDeployment, resolveFeishuBot, type Machine, type Probe } from '../src/deployment.ts'
@@ -40,8 +40,12 @@ afterEach(() => { rmSync(dir, { recursive: true, force: true }) })
 vi.setConfig({ testTimeout: 30_000 })
 
 describe('configuration schema', () => {
-  it('requires only the state directory and reads the editable fields through references', () => {
-    expect(() => Config({})).toThrow('stateDir')
+  it('defaults the state directory under the DSH home and reads the editable fields through references', () => {
+    // stateDir 现在有默认值（社区反馈 K3）：空配置不再抛错，bundle 安装后无需机器配置即可挂载。
+    const defaulted = machineOf(Config({}))
+    expect(defaulted.stateDir).toMatch(/state[/\\+]superagent$/)
+    // 默认值也兼容 Windows 盘符路径（K1 相关），按 isAbsolute 断言而非硬编码 POSIX 前缀。
+    expect(isAbsolute(defaulted.stateDir)).toBe(true)
     const read = machineOf(Config({ stateDir: join(dir, 'state') }))
     // Limits are volatile references that the loader updates in place and callers read when used.
     expect({ ...read, promptMaxChars: read.promptMaxChars.get(), admissionContextMaxPages: read.admissionContextMaxPages.get(),

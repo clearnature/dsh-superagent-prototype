@@ -91,7 +91,8 @@ const CommandNameSchema = z.string().regex(/^[A-Za-z0-9._-]+$/).refine(name => n
 export const ExecutorConfigSchema = z.object({
   model: RoleModelSchema.nullable().default(null),
   maxWorkers: z.number().int().min(LIMITS.maxWorkers.min).max(LIMITS.maxWorkers.max).default(3),
-  directory: z.string().trim().refine(path => path === '' || path.startsWith('/'), 'An absolute path, or empty for <stateDir>/work').default(''),
+  // Windows 盘符路径与 POSIX 绝对路径同待遇（与 deployment.ts 的 absolute() 一致，审计发现 #2）。
+  directory: z.string().trim().refine(path => path === '' || /^(\/|[A-Za-z]:[\/\\])/.test(path), 'An absolute path (POSIX or a Windows drive path), or empty for <stateDir>/work').default(''),
   prepare: z.string().max(LIMITS.prepareCommand).default(''),
   blockedCommands: z.array(CommandNameSchema).default([]),
 }).strict()
