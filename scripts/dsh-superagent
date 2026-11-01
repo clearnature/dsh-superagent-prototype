@@ -19,12 +19,15 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 ROOT = Path(__file__).resolve().parent.parent
 ARTIFACTS = ROOT / '.artifacts'
 CONTROL = ARTIFACTS / 'control'
 KEEP_LOGS = 20
+DEFAULT_URL = 'http://127.0.0.1:3082'
+LOCK_STALE = 30
 
 
 def control(profile):
@@ -37,6 +40,74 @@ def control(profile):
 def stopped(profile):
     """Return whether `profile` was intentionally stopped."""
     return (control(profile) / 'manually-stopped').exists()
+
+
+def profile_home(profile):
+    """Return the profile directory under DSH_HOME (or ~/.dsh)."""
+    home = Path(os.environ.get('DSH_HOME') or (Path.home() / '.dsh'))
+    return home / 'profiles' / profile
+
+
+def configured_state_dir(profile):
+    """Return the stateDir the profile patch sets, or None (callers degrade gracefully)."""
+    try:
+        text = (profile_home(profile) / 'cordis.patch.yml').read_text(encoding='utf-8')
+    except OSError:
+        return None
+    match = re.search(r'stateDir:\s*"?([^"\n]+)"?', text)
+    return Path(match.group(1).strip()) if match else None
+
+
+def state_lock(profile):
+    """Return the `proper-lockfile` lock path (`<stateDir>.lock`, a directory), or None."""
+    directory = configured_state_dir(profile)
+    return Path(str(directory) + '.lock') if directory else None
+
+
+def log_url(profile):
+    """Return the URL the newest startup logs printed (`dsh web: http://...`), or None."""
+    name = re.compile(re.escape(f'dsh-superagent-{profile}-') + r'\d{8}-\d{6}-\d+\.log')
+    logs = sorted((path for path in ARTIFACTS.iterdir() if name.fullmatch(path.name)),
+                  key=lambda path: path.stat().st_mtime)
+    for path in reversed(logs[-3:]):
+        try:
+            found = re.findall(r'dsh web:\s*(https?://\S+)', path.read_text(errors='replace'))
+        except OSError:
+            continue
+        if found:
+            return found[-1].split('/?')[0].rstrip('/')
+    return None
+
+
+def service_url(args):
+    """Resolve the health URL: the flag, the recorded one, the one dsh printed, then the default."""
+    if args.url:
+        return args.url.rstrip('/')
+    try:
+        recorded = (control(args.profile) / 'url.txt').read_text().strip().rstrip('/')
+    except OSError:
+        recorded = ''
+    return recorded or log_url(args.profile) or DEFAULT_URL
+
+
+def wait_for_state_lock(profile, timeout=45):
+    """Wait out the lock a killed instance left: `runtime.ts` calls it stale after 30 s and `lockSync` cannot retry."""
+    lock = state_lock(profile)
+    if lock is None or not lock.exists():
+        return
+    deadline = time.monotonic() + timeout
+    announced = False
+    while time.monotonic() < deadline:
+        if not lock.exists():
+            return
+        age = time.time() - lock.stat().st_mtime
+        if age >= LOCK_STALE:
+            return
+        if not announced:
+            print(f'state lock is still fresh; waiting {int(LOCK_STALE - age)}s for the previous instance to go stale.', flush=True)
+            announced = True
+        time.sleep(1)
+    raise RuntimeError(f'state directory is still locked: {lock}. Delete that directory if a killed instance left it, otherwise stop first.')
 
 
 def serves(args, profile):
@@ -169,6 +240,7 @@ def start(args):
                                 capture_output=True).returncode == 0
         if state(args.url) is not None:
             raise RuntimeError('An existing orchestrator answers at this URL; refusing duplicate startup.')
+        wait_for_state_lock(args.profile)
         stamp = time.strftime('%Y%m%d-%H%M%S')
         log = ARTIFACTS / f'dsh-superagent-{args.profile}-{stamp}-{os.getpid()}.log'
         log.touch()
@@ -183,6 +255,22 @@ def start(args):
         if pane.isdigit():
             (control(args.profile) / 'service.pid').write_text(pane + '\n')
         print('Log: ' + str(log), flush=True)
+        # The real URL is only known once dsh prints it: token rotation may have changed the port.
+        discovered = None
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            try:
+                found = re.findall(r'dsh web:\s*(https?://\S+)', log.read_text(errors='replace'))
+            except OSError:
+                found = []
+            if found:
+                discovered = found[-1].split('/?')[0].rstrip('/')
+                break
+            time.sleep(0.5)
+        if discovered:
+            (control(args.profile) / 'url.txt').write_text(discovered + '\n')
+            args.url = discovered
+            print('URL: ' + discovered, flush=True)
     else:
         (control(args.profile) / 'service.pid').write_text(f'{pids[0]}\n')
         print(f'dsh-superagent already running (PID {pids[0]}); no duplicate started.', flush=True)
@@ -200,6 +288,7 @@ def start(args):
                 print('Fix it on the Feishu card of the Source settings.')
             for name, detail in part_errors(current).items():
                 print(f'{name} reports an error, which a restart does not fix: {detail}')
+            print('Panel: ' + args.url + '/  (sidebar -> Superagent)', flush=True)
             return code
         time.sleep(1)
     status(args)
@@ -211,8 +300,8 @@ def main():
     parser.add_argument('action', choices=['start', 'stop', 'restart', 'status'])
     parser.add_argument('--profile', default=os.environ.get('DSH_SUPERAGENT_PROFILE') or 'superagent',
                         help='DSH profile that loads dsh-superagent; its tmux session is dsh-<profile>.')
-    parser.add_argument('--url', default=os.environ.get('DSH_SUPERAGENT_URL') or 'http://127.0.0.1:3082',
-                        help='Health-check URL; override after changing the profile port.')
+    parser.add_argument('--url', default=os.environ.get('DSH_SUPERAGENT_URL'),
+                        help='Health-check URL; by default it is read from url.txt or the newest startup log, falling back to ' + DEFAULT_URL + '.')
     parser.add_argument('--timeout', type=float, default=60, help='Startup timeout in seconds.')
     parser.add_argument('--stop-timeout', type=float, default=300,
                         help='Graceful shutdown timeout in seconds; running Executor Sessions finish their step first.')
@@ -223,6 +312,7 @@ def main():
         parser.error('--timeout and --stop-timeout must be positive')
     if not re.fullmatch(r'[A-Za-z0-9_][A-Za-z0-9_.-]*', args.profile):
         parser.error('--profile must be a DSH profile name')
+    args.url = service_url(args)
     os.umask(0o077)
     with (control(args.profile) / 'operation.lock').open('a') as lock:
         try:
