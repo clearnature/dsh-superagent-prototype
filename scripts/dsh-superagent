@@ -54,8 +54,15 @@ def configured_state_dir(profile):
         text = (profile_home(profile) / 'cordis.patch.yml').read_text(encoding='utf-8')
     except OSError:
         return None
-    match = re.search(r'stateDir:\s*"?([^"\n]+)"?', text)
-    return Path(match.group(1).strip()) if match else None
+    found = []
+    for line in text.splitlines():
+        # 取最后一个真实条目：跳过注释行，剥行内 # 注释（审查发现：早版正则会吃到注释与行内备注）。
+        if line.lstrip().startswith('#'):
+            continue
+        match = re.match(r'\s*stateDir:\s*"?([^"#\n]+?)"?\s*(?:#.*)?$', line)
+        if match:
+            found.append(match.group(1).strip())
+    return Path(found[-1]) if found else None
 
 
 def state_lock(profile):
@@ -79,15 +86,20 @@ def log_url(profile):
     return None
 
 
+def sanitize(url):
+    """Strip any `/?token=...` suffix dsh appends, and trailing slashes."""
+    return url.split('/?')[0].rstrip('/')
+
+
 def service_url(args):
     """Resolve the health URL: the flag, the recorded one, the one dsh printed, then the default."""
     if args.url:
-        return args.url.rstrip('/')
+        return sanitize(args.url)
     try:
-        recorded = (control(args.profile) / 'url.txt').read_text().strip().rstrip('/')
+        recorded = (control(args.profile) / 'url.txt').read_text().strip()
     except OSError:
         recorded = ''
-    return recorded or log_url(args.profile) or DEFAULT_URL
+    return sanitize(recorded) if recorded else log_url(args.profile) or DEFAULT_URL
 
 
 def wait_for_state_lock(profile, timeout=45):
@@ -100,7 +112,11 @@ def wait_for_state_lock(profile, timeout=45):
     while time.monotonic() < deadline:
         if not lock.exists():
             return
-        age = time.time() - lock.stat().st_mtime
+        # 旧实例可能在等待期间释放锁：stat 输给删除时视为已释放（审查发现 #1 的 TOCTOU）。
+        try:
+            age = time.time() - lock.stat().st_mtime
+        except FileNotFoundError:
+            return
         if age >= LOCK_STALE:
             return
         if not announced:
@@ -312,13 +328,14 @@ def main():
         parser.error('--timeout and --stop-timeout must be positive')
     if not re.fullmatch(r'[A-Za-z0-9_][A-Za-z0-9_.-]*', args.profile):
         parser.error('--profile must be a DSH profile name')
-    args.url = service_url(args)
     os.umask(0o077)
     with (control(args.profile) / 'operation.lock').open('a') as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise RuntimeError('Another dsh-superagent control operation is in progress.') from None
+        # URL 解析会读日志并建 control 目录：放进操作锁内，与 prune_logs 等保持同一串行域（审查发现 #6）。
+        args.url = service_url(args)
         if args.respect_stop and args.action in ('start', 'restart') and stopped(args.profile):
             print('Intentional stop is active; automatic recovery skipped.')
             return 0

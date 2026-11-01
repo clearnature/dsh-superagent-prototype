@@ -19,7 +19,9 @@ const absolute = (description: string) => s.string().pattern(/^(\/|[A-Za-z]:[\/]
 const defaultStateDir = (): string => join(process.env.DSH_HOME?.trim() || join(homedir(), '.dsh'), 'state', 'superagent').replaceAll('\\', '/')
 /** Plugin configuration of the dsh-superagent entry. Volatile fields apply without a restart because dsh-superagent reads them on each use; changing `stateDir` remounts the plugin. */
 export const Config = s.object({
-  stateDir: absolute('Directory for the database, locks, worker shims, the agent\'s git configuration and, by default, the ticket directories.').default(defaultStateDir()),
+  stateDir: absolute('Directory for the database, locks, worker shims, the agent\'s git configuration and, by default, the ticket directories.')
+    // 默认值在 schema 构建时求值一次：DSH_HOME 需在进程启动前设好（schemastery 的 default 不支持惰性函数，审查发现 #3 的惰性化暂缓）。
+    .default(defaultStateDir()),
   promptMaxChars: s.number().min(LIMITS.promptMaxChars.min).max(LIMITS.promptMaxChars.max).step(1).default(100000)
     .description('Largest saved prompt configuration, in characters.').volatile(),
   admissionContextMaxPages: s.number().min(LIMITS.admissionContextMaxPages.min).max(LIMITS.admissionContextMaxPages.max).step(1).default(10)
