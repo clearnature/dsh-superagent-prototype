@@ -1,0 +1,27 @@
+name: Tests - sources
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sources:
+    name: Sources, channels and admission context
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Node and dependencies
+        uses: ./.github/actions/setup
+      - name: Run tests
+        run: >-
+          env -u GIT_CONFIG_GLOBAL -u GIT_CONFIG_SYSTEM pnpm exec vitest run
+          tests/sources.spec.ts tests/feishu-read.spec.ts tests/feishu-image.spec.ts tests/admission-context.spec.ts

@@ -1,0 +1,27 @@
+name: Tests - panel
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  panel:
+    name: Panel pages, client plugin and text rules
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Node and dependencies
+        uses: ./.github/actions/setup
+      - name: Run tests
+        run: >-
+          env -u GIT_CONFIG_GLOBAL -u GIT_CONFIG_SYSTEM pnpm exec vitest run
+          tests/client.spec.tsx tests/navigation.spec.ts tests/controls.spec.tsx tests/views.spec.ts tests/styles.spec.ts tests/locales.spec.ts tests/markdown.spec.ts tests/panel-deployment.spec.tsx tests/panel-eval.spec.tsx tests/panel-execution.spec.tsx tests/panel-overview.spec.tsx tests/panel-panel.spec.tsx tests/panel-prompts.spec.tsx tests/panel-settings.spec.tsx tests/panel-source.spec.tsx tests/panel-trigger.spec.tsx

@@ -1,0 +1,27 @@
+name: Tests - app
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app:
+    name: Deployment, prompts and runtime behavior
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Node and dependencies
+        uses: ./.github/actions/setup
+      - name: Run tests
+        run: >-
+          env -u GIT_CONFIG_GLOBAL -u GIT_CONFIG_SYSTEM pnpm exec vitest run
+          tests/deployment.spec.ts tests/runtime-concurrency.spec.ts tests/retry-health.spec.ts tests/cache.spec.ts tests/prompt-config.spec.ts tests/prompts.spec.ts tests/role-models.spec.ts tests/tools.spec.ts tests/settings.spec.ts

@@ -1,0 +1,27 @@
+name: Tests - domain
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  domain:
+    name: Domain rules and storage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Node and dependencies
+        uses: ./.github/actions/setup
+      - name: Run tests
+        run: >-
+          env -u GIT_CONFIG_GLOBAL -u GIT_CONFIG_SYSTEM pnpm exec vitest run
+          tests/core-engine.spec.ts tests/stage.spec.ts tests/registry.spec.ts tests/background.spec.ts tests/assessment.spec.ts tests/delivery.spec.ts tests/followups.spec.ts tests/marks.spec.ts tests/outbox.spec.ts tests/queue.spec.ts tests/effects.spec.ts tests/store.spec.ts tests/timeline.spec.ts tests/passes.spec.ts tests/health.spec.ts tests/migration.spec.ts tests/draft.spec.ts

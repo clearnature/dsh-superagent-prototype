@@ -1,0 +1,27 @@
+name: DSH bundle contract
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    name: Bundle and role contracts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Node and dependencies
+        uses: ./.github/actions/setup
+      - name: Run tests
+        run: >-
+          env -u GIT_CONFIG_GLOBAL -u GIT_CONFIG_SYSTEM pnpm exec vitest run
+          tests/bundle-patch.spec.ts tests/index.spec.ts tests/model-surface.spec.ts tests/runtime.spec.ts
