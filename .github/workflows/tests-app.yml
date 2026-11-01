@@ -19,6 +19,8 @@ jobs:
     name: Deployment, prompts and runtime behavior
     runs-on: ubuntu-latest
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
       - name: Set up Node and dependencies
         uses: ./.github/actions/setup
       - name: Run tests
