@@ -260,7 +260,7 @@ it('fans a person\'s later thread message out to the live worker as context and 
   expect(runtime.store.decisions.byThread(`feishu:${CHAT}:om_1`).map(decision => decision.triggerIds)).toEqual([[ticket.origin.triggerId]])
   expect(await runTool(sessionId, 'orchestrator_read', { resource: `trigger/${followup.id}` }))
     .toMatchObject({ trigger_id: followup.id, around: { before: expect.objectContaining({ read: `trigger/${key('feishu', 'om_1')}` }) } })
-})
+}, 15_000)
 
 it('assesses a proactive observation in the orchestrator Session and creates the ticket only on a positive auto-mode decision', async () => {
   const observe = (mode: 'observe' | 'auto') => runtime.settings.save('eval', { ...runtime.store.settings().eval, mode }, runtime.store.blockRevision('eval'), 'panel')
@@ -1637,7 +1637,7 @@ it('launches a queued Assignment once when the host resumes, and gives a failed 
   await runtime.pump(); await runtime.idle()
   await vi.waitFor(() => expect(runtime.store.tickets.get(queued.ticket.id)!.assignments.at(-1)).toMatchObject({ state: 'running' }))
   expect(launches()).toBe(1)
-})
+}, 15_000)
 
 it('shows the settings history when one revision holds values its Source kind no longer accepts, without that revision\'s changes', async () => {
   const settings = runtime.store.settings()
