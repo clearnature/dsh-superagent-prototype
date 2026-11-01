@@ -227,7 +227,7 @@ ok('陈旧锁分支正确'),
 `,
     },
     {
-      name: 'wait_for_state_lock：TOCTOU（exists 后 stat 前锁被删）-> 视为已释放',
+      name: 'wait_for_state_lock：stat 检查期间锁被删 -> 视为已释放',
       body: `
 home = profile_home()
 home.mkdir(parents=True, exist_ok=True)
@@ -236,7 +236,7 @@ state = ROOT / 'state'
 lock = Path(str(state) + '.lock')
 lock.mkdir(parents=True)
 
-# 模拟审查发现 #1 的竞态：exists() 为真，但在 stat() 时锁目录已被删除。
+# 模拟锁目录在 stat() 检查期间被删除；应将 FileNotFoundError 视为锁已释放。
 real_stat = Path.stat
 deleted = {'hit': False}
 
