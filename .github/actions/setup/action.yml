@@ -1,10 +1,8 @@
-name: 'Setup Node and dependencies'
-description: 'Checkout, pnpm 11.7, Node 22.19 with pnpm cache, frozen install'
+name: 'Setup pnpm, Node and dependencies'
+description: 'pnpm 11.7, Node 22.19 with pnpm cache, frozen install (checkout must run first)'
 runs:
   using: composite
   steps:
-    - name: Check out repository
-      uses: actions/checkout@v4
     - name: Set up pnpm
       uses: pnpm/action-setup@v4
       with:

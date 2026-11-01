@@ -16,10 +16,12 @@ concurrency:
 
 jobs:
   build:
-    name: Build package and report size
+    name: Build package
     runs-on: ubuntu-latest
     steps:
-      - name: Set up Node and dependencies
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up pnpm, Node and dependencies
         uses: ./.github/actions/setup
-      - name: Build package and report size
-        run: pnpm build && du -sb lib | cut -f1
+      - name: Build package
+        run: pnpm build

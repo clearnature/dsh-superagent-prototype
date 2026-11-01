@@ -19,7 +19,9 @@ jobs:
     name: Sources, channels and admission context
     runs-on: ubuntu-latest
     steps:
-      - name: Set up Node and dependencies
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up pnpm, Node and dependencies
         uses: ./.github/actions/setup
       - name: Run tests
         run: >-
