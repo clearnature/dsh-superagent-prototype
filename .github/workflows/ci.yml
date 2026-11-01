@@ -1,0 +1,193 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm typecheck
+
+  test:
+    name: Tests (${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Run test shard
+        shell: bash
+        run: |
+          started_at=$(date +%s%N)
+          if env -u GIT_CONFIG_GLOBAL -u GIT_CONFIG_SYSTEM pnpm exec vitest run --shard=${{ matrix.shard }}/4; then
+            result=0
+          else
+            result=$?
+          fi
+          duration_ms=$((($(date +%s%N) - started_at) / 1000000))
+          {
+            echo "### Test shard ${{ matrix.shard }}/4"
+            echo "- Duration: ${duration_ms} ms"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$result"
+
+  security:
+    name: Security checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Audit dependencies
+        run: pnpm audit --audit-level=high
+      - name: Test authorization and security boundaries
+        run: >-
+          env -u GIT_CONFIG_GLOBAL -u GIT_CONFIG_SYSTEM pnpm exec vitest run
+          tests/policy.spec.ts
+          tests/commands.spec.ts
+          tests/environment.spec.ts
+          tests/github-read.spec.ts
+          tests/http.spec.ts
+
+  dsh-contract:
+    name: DSH bundle contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Test bundle and role contracts
+        run: >-
+          env -u GIT_CONFIG_GLOBAL -u GIT_CONFIG_SYSTEM pnpm exec vitest run
+          tests/bundle-patch.spec.ts
+          tests/index.spec.ts
+          tests/model-surface.spec.ts
+          tests/runtime.spec.ts
+
+  edge-scenarios:
+    name: Edge and integration scenarios
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Test edge cases and end-to-end scenarios
+        run: >-
+          env -u GIT_CONFIG_GLOBAL -u GIT_CONFIG_SYSTEM pnpm exec vitest run
+          tests/admission-context.spec.ts
+          tests/cache.spec.ts
+          tests/retry-health.spec.ts
+          tests/runtime-concurrency.spec.ts
+          tests/service-script.spec.ts
+          tests/sources.spec.ts
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build package and report size
+        shell: bash
+        run: |
+          started_at=$(date +%s%N)
+          if pnpm build; then
+            result=0
+          else
+            result=$?
+          fi
+          duration_ms=$((($(date +%s%N) - started_at) / 1000000))
+          if [[ -d lib ]]; then
+            output_bytes=$(du -sb lib | cut -f1)
+          else
+            output_bytes=unavailable
+          fi
+          {
+            echo "### Build performance"
+            echo "- Duration: ${duration_ms} ms"
+            echo "- Output size: ${output_bytes} bytes"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$result"

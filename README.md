@@ -29,10 +29,26 @@ Read the numbered documents in order; each builds only on the ones before it.
 - [006 Deployment](docs/006-deployment.md): manual setup, configuration, upgrades and troubleshooting
 - [007 Architecture](docs/007-architecture.md)
 - [008 Cookbook](docs/008-cookbook.md): adding a Source
+- [009 Security boundaries](docs/009-security-boundaries.md): authorization flow, enforcement limits and security tests
 
 ## Development
 
 `pnpm check` runs the typecheck, the tests and the build.
+
+GitHub Actions runs CI on pushes and pull requests targeting `main`, and can also
+be started manually. Typechecking, tests and the package build run as separate
+jobs; tests are split into four parallel shards so failures are easier to locate
+and test time is reduced. A dedicated security job audits dependencies and runs
+authorization, command-isolation, environment, GitHub-path and HTTP-boundary
+tests. Another job highlights edge and integration scenarios for pagination,
+retries, concurrency, service lifecycle and Source events; all tests still run
+in the sharded test job.
+The DSH contract job separately checks bundle parsing, plugin registration,
+role-specific tool surfaces and Session behavior.
+
+Each test shard reports its duration, and the build reports duration and output
+size in the Actions run summary. These are trend metrics only, with no
+performance threshold until a baseline is established.
 
 ## License
 
