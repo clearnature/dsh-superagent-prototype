@@ -40,8 +40,11 @@ afterEach(() => { rmSync(dir, { recursive: true, force: true }) })
 vi.setConfig({ testTimeout: 30_000 })
 
 describe('configuration schema', () => {
-  it('requires only the state directory and reads the editable fields through references', () => {
-    expect(() => Config({})).toThrow('stateDir')
+  it('defaults the state directory under the DSH home and reads the editable fields through references', () => {
+    // stateDir 现在有默认值（社区反馈 K3）：空配置不再抛错，bundle 安装后无需机器配置即可挂载。
+    const defaulted = machineOf(Config({}))
+    expect(defaulted.stateDir).toMatch(/state[/\\+]superagent$/)
+    expect(defaulted.stateDir.startsWith('/')).toBe(true)
     const read = machineOf(Config({ stateDir: join(dir, 'state') }))
     // Limits are volatile references that the loader updates in place and callers read when used.
     expect({ ...read, promptMaxChars: read.promptMaxChars.get(), admissionContextMaxPages: read.admissionContextMaxPages.get(),

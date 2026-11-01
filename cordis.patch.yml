@@ -1,6 +1,6 @@
 # dsh-superagent bundle layer: inserts the plugins without configuration, and the agent presets its Sessions run under. The
-# profile supplies the `dsh-superagent` entry's stateDir (see docs/006-deployment.md and examples/profile.cordis.patch.yml); the plugin
-# refuses to start without stateDir.
+# `dsh-superagent` entry's stateDir defaults to `<DSH home>/state/superagent` (社区修正反馈 K3)，so installing this bundle is
+# enough to mount it; a profile that wants the state elsewhere sets stateDir itself (see docs/006-deployment.md).
 - insert:
     - id: dsh-superagent
       name: dsh-superagent

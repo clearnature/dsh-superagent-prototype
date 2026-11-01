@@ -260,7 +260,8 @@ export class Sessions {
     const register = this.registerTool(agent, binding)
     for (const tool of host.tools(agent, ticket)) register(tool.name, tool.description, tool.schema, tool.execute)
     if (master) {
-      binding.disposers.push(agent.ctx.tools.restrict({ allow: ['skill', 'bash', 'read', 'read_image', 'job_output', 'job_list', 'job_kill'] }),
+      // Router 会话的工具白名单按平台限制 bash/pwsh（社区踩坑 K4：写死 'bash' 时 Windows 只有 pwsh，orchestrator 初始化失败）。
+      binding.disposers.push(agent.ctx.tools.restrict({ allow: ['skill', process.platform === 'win32' ? 'pwsh' : 'bash', 'read', 'read_image', 'job_output', 'job_list', 'job_kill'] }),
         agent.ctx.tools.guard(execution => noWait(execution, () => this.routed(agent))))
     } else {
       // An Executor Session keeps the profile's work tools it has, which DSH requires to be known; its own tools are not masked.
