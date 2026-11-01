@@ -105,13 +105,15 @@ def service_url(args):
 def wait_for_state_lock(profile, timeout=45):
     """Wait out the lock a killed instance left: `runtime.ts` calls it stale after 30 s and `lockSync` cannot retry."""
     lock = state_lock(profile)
-    if lock is None or not lock.exists():
+    if lock is None:
+        return
+    try:
+        lock.stat()
+    except FileNotFoundError:
         return
     deadline = time.monotonic() + timeout
     announced = False
     while time.monotonic() < deadline:
-        if not lock.exists():
-            return
         # 旧实例可能在等待期间释放锁：stat 输给删除时视为已释放（审查发现 #1 的 TOCTOU）。
         try:
             age = time.time() - lock.stat().st_mtime
